@@ -201,4 +201,4 @@ Key metrics to review: profit factor, max drawdown, trade count, expectancy, ave
 ## License
 
 MIT — free to use and modify. No warranty expressed or implied.
-<!-- updated: 2024-03-03-r01 -->
+<!-- updated: 2024-06-23-r01 -->
