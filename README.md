@@ -55,16 +55,46 @@ StopLossMode      = 1   (ATR)
 StopLossATRMult   = 1.2
 TakeProfitMode    = 1   (ATR)
 TakeProfitATRMult = 1.2
-RiskPercent       = 0.25
+RiskPercent       = 0.50
+MaxDrawdownPercent= 20.0
+MaxDailyLossPercent = 2.0
 SessionStartHour  = 8
 SessionEndHour    = 17
 UseBreakEven      = true
 BreakEvenTriggerR = 0.8
 UseTimeExit       = true
 MaxTradeMinutes   = 20
+AllowFriday       = false
 ```
 
-### GBPUSD M5 — increase MaxSpreadPips to 2.0
+### GBPUSD M5
+
+```
+BiasTimeframe     = M15
+BiasFastEMA       = 50
+BiasSlowEMA       = 200
+ExecEMA_Period    = 20
+RSI_Period        = 14
+ATR_Period        = 14
+MinATR_Pips       = 4.0
+MaxSpreadPips     = 2.0
+StopLossMode      = 1   (ATR)
+StopLossATRMult   = 1.4
+TakeProfitMode    = 1   (ATR)
+TakeProfitATRMult = 1.4
+RiskPercent       = 0.50
+MaxDrawdownPercent= 20.0
+MaxDailyLossPercent = 2.0
+SessionStartHour  = 8
+SessionEndHour    = 17
+UseBreakEven      = true
+BreakEvenTriggerR = 0.8
+UseTimeExit       = true
+MaxTradeMinutes   = 25
+AllowFriday       = false
+```
+
+> GBPUSD is more volatile — slightly wider ATR multipliers and longer time exit are recommended.
 
 ### USDJPY M5 — increase MaxSpreadPips to 2.0, MinATR_Pips to 4.0
 
@@ -76,9 +106,9 @@ MaxTradeMinutes   = 20
 |---|---|
 | Win rate | 55–60% |
 | Reward : Risk | 1.0 to 1.2 |
-| Profit factor | 1.2 to 1.5 |
-| Max drawdown | < 5% live, < 8% testing |
-| Monthly return | 2–4% at 0.25% risk/trade |
+| Profit factor | 1.3 to 1.6 |
+| Max drawdown | < 20% (hard cutoff) |
+| Monthly return | 4–8% at 0.5% risk/trade |
 
 > **Note:** No EA can guarantee profits. These are design targets for a conservative system tested across varied market conditions. Past backtest results do not guarantee future performance.
 

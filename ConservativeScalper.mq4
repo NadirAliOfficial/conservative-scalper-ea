@@ -66,7 +66,7 @@ extern int    BreakoutBars           = 1;            // Bars back for high/low b
 //====================================================================
 extern int    LotSizingMode          = 1;            // 0=Fixed lot  1=Risk %
 extern double FixedLot               = 0.01;         // Used when mode=0
-extern double RiskPercent            = 0.25;         // % of equity risked per trade
+extern double RiskPercent            = 0.50;         // % of equity risked per trade
 extern double MaxSpreadPips          = 1.5;          // Max allowed spread in pips
 extern int    MaxSlippagePts         = 3;            // Max slippage in broker points
 
@@ -97,9 +97,9 @@ extern bool   CloseAtSessionEnd      = true;         // Close open trades at ses
 //  DAILY / SESSION PROTECTION
 //====================================================================
 extern int    MaxTradesPerDay        = 6;            // Max new trades per session day
-extern double MaxDailyLossPercent    = 1.5;          // Stop trading if daily loss >= X%
+extern double MaxDailyLossPercent    = 2.0;          // Stop trading if daily loss >= X%
 extern int    MaxConsecutiveLosses   = 3;            // Pause after N consecutive losses
-extern double MaxDrawdownPercent     = 8.0;          // Hard stop if equity DD >= X%
+extern double MaxDrawdownPercent     = 20.0;         // Hard stop if equity DD >= X%
 extern double MaxTotalOpenRiskPct    = 1.0;          // Cap on total open risk %
 
 //====================================================================
