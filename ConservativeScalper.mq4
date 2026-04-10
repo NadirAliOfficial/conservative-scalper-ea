@@ -103,6 +103,15 @@ extern double MaxDrawdownPercent     = 20.0;         // Hard stop if equity DD >
 extern double MaxTotalOpenRiskPct    = 1.0;          // Cap on total open risk %
 
 //====================================================================
+//  NEWS FILTER  (auto-fetches ForexFactory calendar)
+//====================================================================
+extern bool   UseNewsFilter          = true;         // Enable automatic news filter
+extern string NewsFilterCurrencies   = "USD,EUR,GBP";// Block news for these currencies
+extern int    NewsBlockMinsBefore    = 30;           // Mins to block before event
+extern int    NewsBlockMinsAfter     = 30;           // Mins to block after event
+extern int    BrokerGMTOffset        = 2;            // Broker server GMT offset (check chart)
+
+//====================================================================
 //  GLOBALS
 //====================================================================
 double g_pip;                // Value of 1 pip in price units
@@ -115,6 +124,11 @@ int    g_lastHistoryTotal;   // History size snapshot (for tracking closed order
 bool   g_tradingHalted;      // True when max DD hit (persists across days)
 double g_peakEquity;         // All-time equity high for DD calculation
 datetime g_lastTradeDay;     // Date of last counter reset
+
+// News filter globals
+datetime g_newsEvents[];
+int      g_newsEventCount = 0;
+datetime g_lastNewsFetch  = 0;
 
 //+------------------------------------------------------------------+
 //| INIT                                                             |
@@ -160,6 +174,9 @@ void OnTick()
 {
    // 1. Reset daily counters if calendar date changed
    ResetDailyIfNewDay();
+
+   // 2a. Refresh news calendar once per day
+   FetchNewsCalendar();
 
    // 2. Track peak equity
    if(AccountEquity() > g_peakEquity)
@@ -238,6 +255,9 @@ bool CanOpenNewTrade()
 
    // Rollover block
    if(IsRolloverTime()) return false;
+
+   // News filter
+   if(IsNewsTime()) return false;
 
    // Spread
    double spreadPips = MarketInfo(Symbol(), MODE_SPREAD) * g_point / g_pip;
@@ -632,6 +652,148 @@ bool IsAllowedDay()
       case 5: return AllowFriday;
       default: return false;
    }
+}
+
+//====================================================================
+//  NEWS FILTER — auto-fetches ForexFactory high-impact calendar
+//  Requires: MT4 Tools → Options → Expert Advisors →
+//            Allow WebRequest for: https://nfs.faireconomy.media
+//====================================================================
+void FetchNewsCalendar()
+{
+   if(!UseNewsFilter) return;
+
+   datetime today = StringToTime(TimeToStr(TimeCurrent(), TIME_DATE));
+   if(g_lastNewsFetch == today) return;  // Already fetched today
+
+   string url     = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
+   string headers = "User-Agent: Mozilla/5.0\r\n";
+   char   post[];
+   char   result[];
+   string resultHeaders;
+
+   ResetLastError();
+   int httpCode = WebRequest("GET", url, headers, 10000, post, result, resultHeaders);
+
+   if(httpCode != 200)
+   {
+      Log("NEWS: Fetch failed. HTTP=" + IntegerToString(httpCode) +
+          " Error=" + IntegerToString(GetLastError()) +
+          " — Check WebRequest whitelist in MT4 options");
+      return;
+   }
+
+   string json = CharArrayToString(result);
+   ParseNewsJSON(json);
+   g_lastNewsFetch = today;
+   Log("NEWS: Calendar updated. High-impact events found=" + IntegerToString(g_newsEventCount));
+}
+
+void ParseNewsJSON(string json)
+{
+   g_newsEventCount = 0;
+   ArrayResize(g_newsEvents, 200);
+
+   int pos = 0;
+   int jsonLen = StringLen(json);
+
+   while(pos < jsonLen)
+   {
+      // Find next JSON object
+      int objStart = StringFind(json, "{", pos);
+      if(objStart < 0) break;
+      int objEnd = StringFind(json, "}", objStart);
+      if(objEnd < 0) break;
+
+      string obj = StringSubstr(json, objStart, objEnd - objStart + 1);
+
+      // Only process High impact events
+      if(StringFind(obj, "\"impact\":\"High\"") >= 0)
+      {
+         // Check currency filter
+         string country = ExtractJSONString(obj, "country");
+         if(StringFind(NewsFilterCurrencies, country) >= 0)
+         {
+            // Parse date
+            string dateStr = ExtractJSONString(obj, "date");
+            datetime eventTime = ParseISODate(dateStr);
+            if(eventTime > 0 && g_newsEventCount < 200)
+            {
+               g_newsEvents[g_newsEventCount] = eventTime;
+               g_newsEventCount++;
+               string title = ExtractJSONString(obj, "title");
+               Log("NEWS: Loaded | " + country + " " + title +
+                   " @ " + TimeToStr(eventTime, TIME_DATE | TIME_MINUTES));
+            }
+         }
+      }
+      pos = objEnd + 1;
+   }
+   ArrayResize(g_newsEvents, g_newsEventCount);
+}
+
+string ExtractJSONString(string obj, string key)
+{
+   string search = "\"" + key + "\":\"";
+   int start = StringFind(obj, search);
+   if(start < 0) return "";
+   start += StringLen(search);
+   int end = StringFind(obj, "\"", start);
+   if(end < 0) return "";
+   return StringSubstr(obj, start, end - start);
+}
+
+datetime ParseISODate(string iso)
+{
+   // Format: "2026-04-04T08:30:00-0400"
+   if(StringLen(iso) < 19) return 0;
+
+   int year  = (int)StringToInteger(StringSubstr(iso, 0, 4));
+   int month = (int)StringToInteger(StringSubstr(iso, 5, 2));
+   int day   = (int)StringToInteger(StringSubstr(iso, 8, 2));
+   int hour  = (int)StringToInteger(StringSubstr(iso, 11, 2));
+   int min   = (int)StringToInteger(StringSubstr(iso, 14, 2));
+
+   // Parse timezone offset (e.g. -0400 or +0000)
+   int tzOffsetSecs = 0;
+   int tzPos = StringFind(iso, "+", 19);
+   int tzSign = 1;
+   if(tzPos < 0) { tzPos = StringFind(iso, "-", 19); tzSign = -1; }
+   if(tzPos >= 0)
+   {
+      int tzH = (int)StringToInteger(StringSubstr(iso, tzPos + 1, 2));
+      int tzM = (int)StringToInteger(StringSubstr(iso, tzPos + 3, 2));
+      tzOffsetSecs = tzSign * (tzH * 3600 + tzM * 60);
+   }
+
+   // Build UTC datetime
+   string dtStr = StringFormat("%04d.%02d.%02d %02d:%02d", year, month, day, hour, min);
+   datetime utc  = StringToTime(dtStr) - tzOffsetSecs;
+
+   // Convert UTC → broker server time
+   datetime serverTime = utc + BrokerGMTOffset * 3600;
+   return serverTime;
+}
+
+bool IsNewsTime()
+{
+   if(!UseNewsFilter || g_newsEventCount == 0) return false;
+
+   datetime now        = TimeCurrent();
+   int      blockBefore = NewsBlockMinsBefore * 60;
+   int      blockAfter  = NewsBlockMinsAfter  * 60;
+
+   for(int i = 0; i < g_newsEventCount; i++)
+   {
+      if(now >= g_newsEvents[i] - blockBefore &&
+         now <= g_newsEvents[i] + blockAfter)
+      {
+         Log("NEWS: Trading blocked near event @ " +
+             TimeToStr(g_newsEvents[i], TIME_DATE | TIME_MINUTES));
+         return true;
+      }
+   }
+   return false;
 }
 
 void Log(string msg)
