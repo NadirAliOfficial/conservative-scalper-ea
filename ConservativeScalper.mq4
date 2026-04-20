@@ -67,7 +67,7 @@ extern int    BreakoutBars           = 1;            // Bars back for high/low b
 extern int    LotSizingMode          = 1;            // 0=Fixed lot  1=Risk %
 extern double FixedLot               = 0.01;         // Used when mode=0
 extern double RiskPercent            = 0.50;         // % of equity risked per trade
-extern double MaxSpreadPips          = 1.5;          // Max allowed spread in pips
+extern double MaxSpreadPips          = 2.5;          // Max allowed spread in pips
 extern int    MaxSlippagePts         = 3;            // Max slippage in broker points
 
 //====================================================================
@@ -127,8 +127,14 @@ datetime g_lastTradeDay;     // Date of last counter reset
 
 // News filter globals
 datetime g_newsEvents[];
-int      g_newsEventCount = 0;
-datetime g_lastNewsFetch  = 0;
+int      g_newsEventCount  = 0;
+datetime g_lastNewsFetch   = 0;
+datetime g_lastNewsLogTime = 0;
+
+// GlobalVariable key names (set in OnInit)
+string g_gvPeak;
+string g_gvHalt;
+string g_gvConsec;
 
 //+------------------------------------------------------------------+
 //| INIT                                                             |
@@ -144,13 +150,21 @@ int OnInit()
       g_pip = Point;
    g_point = Point;
 
-   g_todayTrades        = 0;
-   g_todayStartEquity   = AccountEquity();
-   g_peakEquity         = AccountEquity();
-   g_consecutiveLosses  = 0;
-   g_lastHistoryTotal   = OrdersHistoryTotal();
-   g_tradingHalted      = false;
-   g_lastTradeDay       = 0;
+   // GlobalVariable keys unique to this symbol + magic number
+   string suffix    = Symbol() + "_" + IntegerToString(MagicNumber);
+   g_gvPeak         = "CScalp_Peak_"   + suffix;
+   g_gvHalt         = "CScalp_Halt_"   + suffix;
+   g_gvConsec       = "CScalp_Consec_" + suffix;
+
+   g_todayTrades      = 0;
+   g_todayStartEquity = AccountEquity();
+   g_lastHistoryTotal = OrdersHistoryTotal();
+   g_lastTradeDay     = 0;
+
+   // Restore persistent state so restarts don't reset DD protection
+   g_peakEquity        = GlobalVariableCheck(g_gvPeak)   ? GlobalVariableGet(g_gvPeak)        : AccountEquity();
+   g_tradingHalted     = GlobalVariableCheck(g_gvHalt)   && GlobalVariableGet(g_gvHalt) > 0;
+   g_consecutiveLosses = GlobalVariableCheck(g_gvConsec) ? (int)GlobalVariableGet(g_gvConsec) : 0;
 
    Log("Initialized | Symbol=" + Symbol() +
        " Digits="  + IntegerToString(g_digits) +
@@ -180,7 +194,10 @@ void OnTick()
 
    // 2. Track peak equity
    if(AccountEquity() > g_peakEquity)
+   {
       g_peakEquity = AccountEquity();
+      GlobalVariableSet(g_gvPeak, g_peakEquity);
+   }
 
    // 3. Track closed order outcomes (update consecutive loss counter)
    TrackClosedOrders();
@@ -207,9 +224,7 @@ void ResetDailyIfNewDay()
    g_todayTrades       = 0;
    g_todayStartEquity  = AccountEquity();
 
-   // Only reset consecutive loss pause on new day if NOT a hard drawdown halt
-   if(!g_tradingHalted)
-      g_consecutiveLosses = 0;
+   // Consecutive loss streak is NOT reset on new day — only a win resets it
 
    Log("New day reset | Equity=" + DoubleToString(AccountEquity(), 2));
 }
@@ -230,6 +245,7 @@ bool CanOpenNewTrade()
       {
          Log("HARD HALT — max drawdown " + DoubleToString(dd, 2) + "% reached");
          g_tradingHalted = true;
+         GlobalVariableSet(g_gvHalt, 1.0);
          return false;
       }
    }
@@ -295,8 +311,8 @@ int GetEntrySignal()
    double rsiNow   = iRSI(Symbol(), Period(), RSI_Period, PRICE_CLOSE, 1);
    double rsiPrev  = iRSI(Symbol(), Period(), RSI_Period, PRICE_CLOSE, 2);
 
-   double prevHigh = iHigh(Symbol(), Period(), BreakoutBars);
-   double prevLow  = iLow(Symbol(), Period(), BreakoutBars);
+   double prevHigh = iHigh(Symbol(), Period(), BreakoutBars + 1);
+   double prevLow  = iLow(Symbol(), Period(), BreakoutBars + 1);
    double closeNow = iClose(Symbol(), Period(), 1);
 
    // --- LONG ---
@@ -524,6 +540,7 @@ void TrackClosedOrders()
       if(netPnl < 0)
       {
          g_consecutiveLosses++;
+         GlobalVariableSet(g_gvConsec, (double)g_consecutiveLosses);
          Log("LOSS | Ticket=" + IntegerToString(OrderTicket()) +
              " PnL=" + DoubleToString(netPnl, 2) +
              " ConsecLosses=" + IntegerToString(g_consecutiveLosses));
@@ -533,6 +550,7 @@ void TrackClosedOrders()
          if(g_consecutiveLosses > 0)
             Log("WIN — loss streak reset from " + IntegerToString(g_consecutiveLosses));
          g_consecutiveLosses = 0;
+         GlobalVariableSet(g_gvConsec, 0.0);
       }
    }
    g_lastHistoryTotal = histTotal;
@@ -788,8 +806,12 @@ bool IsNewsTime()
       if(now >= g_newsEvents[i] - blockBefore &&
          now <= g_newsEvents[i] + blockAfter)
       {
-         Log("NEWS: Trading blocked near event @ " +
-             TimeToStr(g_newsEvents[i], TIME_DATE | TIME_MINUTES));
+         if(g_newsEvents[i] != g_lastNewsLogTime)
+         {
+            Log("NEWS: Trading blocked near event @ " +
+                TimeToStr(g_newsEvents[i], TIME_DATE | TIME_MINUTES));
+            g_lastNewsLogTime = g_newsEvents[i];
+         }
          return true;
       }
    }
