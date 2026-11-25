@@ -1,0 +1,25 @@
+# MetaTrader compiled files
+*.ex4
+*.ex5
+
+# Backup and temporary files
+*.mq4~
+*.mq5~
+*.bak
+*.tmp
+
+# Logs and reports
+*.log
+*.htm
+*.html
+
+# IDE/editor specific files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userprefs
+
+# OS generated files
+.DS_Store
+Thumbs.db
